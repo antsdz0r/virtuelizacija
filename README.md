@@ -7,7 +7,7 @@ Template projekat za predmet EEG/WCF.
 - Service
 - Client
 
-## Potrebno implementirati
+## Implementirani
 - WCF servis
 - CSV parsing
 - Validacije
@@ -16,5 +16,3 @@ Template projekat za predmet EEG/WCF.
 - File storage
 - Warnings i rejects.csv
 
-## Napomena
-Ovo je skeleton/template projekat bez gotove implementacije.
