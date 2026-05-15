@@ -43,6 +43,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AckResponse.cs" />
     <Compile Include="Enums.cs" />
     <Compile Include="EegMeta.cs" />
     <Compile Include="EegSample.cs" />
