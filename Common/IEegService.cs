@@ -15,14 +15,14 @@ namespace Common
     {
         [OperationContract]
         [FaultContract(typeof(ValidationFault))]
-        void StartSession(EegMeta meta);
+        AckResponse StartSession(EegMeta meta);
 
         [OperationContract]
         [FaultContract(typeof(DataFormatFault))]
         [FaultContract(typeof(ValidationFault))]
-        void PushSample(EegSample sample);
+        AckResponse PushSample(EegSample sample);
 
         [OperationContract]
-        void EndSession();
+        AckResponse EndSession();
     }
 }

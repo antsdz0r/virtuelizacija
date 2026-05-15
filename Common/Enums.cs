@@ -9,4 +9,11 @@ namespace Common
         [EnumMember] Warning,
         [EnumMember] Failed
     }
+
+    [DataContract]
+    public enum SessionStatus
+    {
+        [EnumMember] InProgress,
+        [EnumMember] Completed
+    }
 }
