@@ -5,13 +5,14 @@ using System.ServiceModel;
 
 namespace Service
 {
-    public class EegService : IEegService
+    public class EegService : IEegService, IDisposable
     {
         private EegMeta _currentMeta;
         private int _lastRowIndex = -1;
         private StreamWriter _sessionWriter;
         private StreamWriter _rejectsWriter;
         private string _sessionPath;
+        private bool _disposed = false;
 
 
         public AckResponse StartSession(EegMeta meta)
@@ -48,11 +49,43 @@ namespace Service
 
         public AckResponse EndSession()
         {
-            // TODO:
-            // - Zatvoriti streamove
-            // - Pokrenuti OnTransferCompleted
+            Console.WriteLine($"[Server] Završen prenos za {_currentMeta?.ParticipantId}.");
+
+            _sessionWriter?.Flush();
+            _sessionWriter?.Dispose();
+            _sessionWriter = null;
+            _rejectsWriter?.Flush();
+            _rejectsWriter?.Dispose();
+            _rejectsWriter = null;
+
+            return new AckResponse { IsAck = true, Message = "Sesija završena.", Status = SessionStatus.Completed };
+            // nije odradjen event deklaracija/zadatak 8
 
             throw new NotImplementedException();
+        }
+
+        ~EegService()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    _sessionWriter?.Dispose();
+                    _rejectsWriter?.Dispose();
+                }
+                _disposed = true;
+            }
         }
     }
 }
