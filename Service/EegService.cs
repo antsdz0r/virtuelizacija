@@ -1,5 +1,6 @@
 using Common;
 using System;
+using System.Configuration;
 using System.IO;
 using System.ServiceModel;
 
@@ -9,20 +10,45 @@ namespace Service
     {
         private EegMeta _currentMeta;
         private int _lastRowIndex = -1;
+        private int _receivedCount = 0;
         private StreamWriter _sessionWriter;
         private StreamWriter _rejectsWriter;
-        private string _sessionPath;
         private bool _disposed = false;
 
-
+        //  StartSession 
         public AckResponse StartSession(EegMeta meta)
         {
             if (meta == null || string.IsNullOrWhiteSpace(meta.ParticipantId))
                 throw new FaultException<ValidationFault>(new ValidationFault("ParticipantId je obavezan.", -1));
 
-            throw new NotImplementedException();
+            _currentMeta = meta;
+            _lastRowIndex = -1;
+            _receivedCount = 0;
+
+            // Mora da otvori fajlove inace PushSample puca (_sessionWriter == null)
+            string dataPath = ConfigurationManager.AppSettings["DataPath"] ?? "Data";
+            string sessionDir = Path.Combine(dataPath, meta.ParticipantId, DateTime.Now.ToString("yyyy-MM-dd"));
+            Directory.CreateDirectory(sessionDir);
+
+            string sessionFile = Path.Combine(sessionDir, "session.csv");
+            string rejectsFile = Path.Combine(sessionDir, "rejects.csv");
+
+            bool sessionExists = File.Exists(sessionFile);
+            _sessionWriter = new StreamWriter(new FileStream(sessionFile, FileMode.Append, FileAccess.Write, FileShare.Read));
+            if (!sessionExists)
+                _sessionWriter.WriteLine("Timestamp,AF3,T7,Pz,T8,AF4,Attention,Engagement,Excitement,Interest,Relaxation,Stress,Battery,ContactQuality,SlideIndex,SetIndex,RowIndex");
+
+            bool rejectsExists = File.Exists(rejectsFile);
+            _rejectsWriter = new StreamWriter(new FileStream(rejectsFile, FileMode.Append, FileAccess.Write, FileShare.Read));
+            if (!rejectsExists)
+                _rejectsWriter.WriteLine("Time,Reason,RawRow");
+
+            Console.WriteLine($"[Server] StartSession: Participant={meta.ParticipantId}, File={meta.FileName}, Rows={meta.TotalRows}");
+
+            return new AckResponse { IsAck = true, Message = "Sesija otvorena.", Status = SessionStatus.InProgress };
         }
 
+        // PushSample 
         public AckResponse PushSample(EegSample sample)
         {
             // 1. Null check
@@ -31,43 +57,60 @@ namespace Service
 
             // 2. Monotoni RowIndex
             if (sample.RowIndex <= _lastRowIndex)
-                throw new FaultException<ValidationFault>(new ValidationFault($"RowIndex nije monoton: primljen {sample.RowIndex}, prethodni {_lastRowIndex}.", sample.RowIndex));
+                throw new FaultException<ValidationFault>(new ValidationFault(
+                    $"RowIndex nije monoton: primljen {sample.RowIndex}, prethodni {_lastRowIndex}.", sample.RowIndex));
             _lastRowIndex = sample.RowIndex;
 
-            // 3. Timestamp parsiranje
+            // 3. Timestamp
             if (sample.Timestamp == DateTime.MinValue)
                 throw new FaultException<DataFormatFault>(new DataFormatFault("Timestamp nije validan.", sample.RowIndex));
 
-            // 4. Realni opsezi
-            if (sample.Attention < 0 || sample.Engagement < 0 || sample.Stress < 0)
+            // 4. Nenegativne metrike
+            if (sample.Attention < 0 || sample.Engagement < 0 || sample.Excitement < 0 ||
+                sample.Interest < 0 || sample.Relaxation < 0 || sample.Stress < 0)
                 throw new FaultException<ValidationFault>(new ValidationFault("Negativna metrika.", sample.RowIndex));
-            if (double.IsNaN(sample.AF3) || double.IsInfinity(sample.AF3))
-                throw new FaultException<DataFormatFault>(new DataFormatFault("Neispravan kanal AF3.", sample.RowIndex));
 
-            throw new NotImplementedException();
+            // 4b. NaN/Infinity za sve EEG kanale
+            double[] channels = { sample.AF3, sample.T7, sample.Pz, sample.T8, sample.AF4 };
+            string[] chNames = { "AF3", "T7", "Pz", "T8", "AF4" };
+            for (int i = 0; i < channels.Length; i++)
+            {
+                if (double.IsNaN(channels[i]) || double.IsInfinity(channels[i]))
+                    throw new FaultException<DataFormatFault>(new DataFormatFault($"Neispravan kanal {chNames[i]}.", sample.RowIndex));
+            }
+
+            // Upis u session.csv
+            _sessionWriter?.WriteLine(
+                $"{sample.Timestamp:O},{sample.AF3},{sample.T7},{sample.Pz},{sample.T8},{sample.AF4}," +
+                $"{sample.Attention},{sample.Engagement},{sample.Excitement},{sample.Interest}," +
+                $"{sample.Relaxation},{sample.Stress},{sample.Battery},{sample.ContactQuality}," +
+                $"{sample.SlideIndex},{sample.SetIndex},{sample.RowIndex}");
+
+            _receivedCount++;
+
+            Console.WriteLine($"[Server] prenos u toku... Participant={_currentMeta?.ParticipantId} Row={sample.RowIndex}");
+
+            return new AckResponse { IsAck = true, Message = $"Red {sample.RowIndex} primljen.", Status = SessionStatus.InProgress };
         }
 
+        // EndSession
         public AckResponse EndSession()
         {
-            Console.WriteLine($"[Server] Završen prenos za {_currentMeta?.ParticipantId}.");
+            Console.WriteLine($"[Server] završen prenos za Participant={_currentMeta?.ParticipantId}, primljeno: {_receivedCount} redova.");
 
             _sessionWriter?.Flush();
             _sessionWriter?.Dispose();
             _sessionWriter = null;
+
             _rejectsWriter?.Flush();
             _rejectsWriter?.Dispose();
             _rejectsWriter = null;
 
             return new AckResponse { IsAck = true, Message = "Sesija završena.", Status = SessionStatus.Completed };
-            // nije odradjen event deklaracija/zadatak 8
-
-            throw new NotImplementedException();
         }
 
-        ~EegService()
-        {
-            Dispose(false);
-        }
+        // ?? IDisposable 
+        ~EegService() { Dispose(false); }
 
         public void Dispose()
         {
