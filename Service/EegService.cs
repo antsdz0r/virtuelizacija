@@ -44,7 +44,7 @@ namespace Service
             if (!rejectsExists)
                 _rejectsWriter.WriteLine("Time,Reason,RawRow");
 
-            Console.WriteLine($"[Server] StartSession: Participant={meta.ParticipantId}, File={meta.FileName}, Rows={meta.TotalRows}");
+            Console.WriteLine($"[Server] >>> ZAPOCET PRENOS za Participant={meta.ParticipantId}, File={meta.FileName}, OcekivanoRedova={meta.TotalRows}");
 
             return new AckResponse { IsAck = true, Message = "Sesija otvorena.", Status = SessionStatus.InProgress };
         }
@@ -122,7 +122,7 @@ namespace Service
         // EndSession
         public AckResponse EndSession()
         {
-            Console.WriteLine($"[Server] završen prenos za Participant={_currentMeta?.ParticipantId}, primljeno: {_receivedCount} redova.");
+            Console.WriteLine($"[Server] <<< ZAVRSEN PRENOS za Participant={_currentMeta?.ParticipantId}, primljeno: {_receivedCount} redova.");
 
             _sessionWriter?.Flush();
             _sessionWriter?.Dispose();
