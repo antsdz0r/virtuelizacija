@@ -1,6 +1,7 @@
 using Common;
 using System;
 using System.Configuration;
+using System.Globalization;
 using System.IO;
 using System.ServiceModel;
 
@@ -57,18 +58,28 @@ namespace Service
 
             // 2. Monotoni RowIndex
             if (sample.RowIndex <= _lastRowIndex)
+            {
+                LogReject(sample, $"RowIndex nije monoton (primljen {sample.RowIndex}, prethodni {_lastRowIndex})");
                 throw new FaultException<ValidationFault>(new ValidationFault(
                     $"RowIndex nije monoton: primljen {sample.RowIndex}, prethodni {_lastRowIndex}.", sample.RowIndex));
-            _lastRowIndex = sample.RowIndex;
+            }
+                _lastRowIndex = sample.RowIndex;
+            
 
             // 3. Timestamp
             if (sample.Timestamp == DateTime.MinValue)
+            {
+                LogReject(sample, "Timestamp nije validan");
                 throw new FaultException<DataFormatFault>(new DataFormatFault("Timestamp nije validan.", sample.RowIndex));
+            }
 
             // 4. Nenegativne metrike
             if (sample.Attention < 0 || sample.Engagement < 0 || sample.Excitement < 0 ||
                 sample.Interest < 0 || sample.Relaxation < 0 || sample.Stress < 0)
+            {
+                LogReject(sample, "Negativna metrika");
                 throw new FaultException<ValidationFault>(new ValidationFault("Negativna metrika.", sample.RowIndex));
+            }
 
             // 4b. NaN/Infinity za sve EEG kanale
             double[] channels = { sample.AF3, sample.T7, sample.Pz, sample.T8, sample.AF4 };
@@ -76,14 +87,17 @@ namespace Service
             for (int i = 0; i < channels.Length; i++)
             {
                 if (double.IsNaN(channels[i]) || double.IsInfinity(channels[i]))
+                {
+                    LogReject(sample, $"Neispravan kanal {chNames[i]}");
                     throw new FaultException<DataFormatFault>(new DataFormatFault($"Neispravan kanal {chNames[i]}.", sample.RowIndex));
+                }
             }
 
             // Upis u session.csv
             _sessionWriter?.WriteLine(
-                $"{sample.Timestamp:O},{sample.AF3},{sample.T7},{sample.Pz},{sample.T8},{sample.AF4}," +
-                $"{sample.Attention},{sample.Engagement},{sample.Excitement},{sample.Interest}," +
-                $"{sample.Relaxation},{sample.Stress},{sample.Battery},{sample.ContactQuality}," +
+                $"{sample.Timestamp:O},{sample.AF3.ToString(CultureInfo.InvariantCulture)},{sample.T7.ToString(CultureInfo.InvariantCulture)},{sample.Pz.ToString(CultureInfo.InvariantCulture)},{sample.T8.ToString(CultureInfo.InvariantCulture)},{sample.AF4.ToString(CultureInfo.InvariantCulture)}," +
+                $"{sample.Attention.ToString(CultureInfo.InvariantCulture)},{sample.Engagement.ToString(CultureInfo.InvariantCulture)},{sample.Excitement.ToString(CultureInfo.InvariantCulture)},{sample.Interest.ToString(CultureInfo.InvariantCulture)}," +
+                $"{sample.Relaxation.ToString(CultureInfo.InvariantCulture)},{sample.Stress.ToString(CultureInfo.InvariantCulture)},{sample.Battery},{sample.ContactQuality}," +
                 $"{sample.SlideIndex},{sample.SetIndex},{sample.RowIndex}");
 
             _receivedCount++;
@@ -91,6 +105,18 @@ namespace Service
             Console.WriteLine($"[Server] prenos u toku... Participant={_currentMeta?.ParticipantId} Row={sample.RowIndex}");
 
             return new AckResponse { IsAck = true, Message = $"Red {sample.RowIndex} primljen.", Status = SessionStatus.InProgress };
+        }
+
+        private void LogReject(EegSample sample, string reason)
+        {
+            try
+            {
+                string raw = sample == null ? "" :
+                    $"{sample.Timestamp:O};AF3={sample.AF3};Stress={sample.Stress};Bat={sample.Battery};CQ={sample.ContactQuality};Row={sample.RowIndex}";
+                _rejectsWriter?.WriteLine($"{DateTime.Now:O},\"{reason}\",\"{raw}\"");
+                _rejectsWriter?.Flush();
+            }
+            catch { /* logovanje ne sme da obori servis */ }
         }
 
         // EndSession
