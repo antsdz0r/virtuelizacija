@@ -1,4 +1,4 @@
-using Common;
+﻿using Common;
 using System;
 using System.Configuration;
 using System.Globalization;
@@ -20,7 +20,18 @@ namespace Service
         public event EventHandler<SampleReceivedEventArgs> OnSampleReceived;
         public event EventHandler<TransferCompletedEventArgs> OnTransferCompleted;
         public event EventHandler<WarningRaisedEventArgs> OnWarningRaised;
+        
+        private double _prevStress = double.NaN;
+        private double _prevRelaxation = double.NaN;
+        private readonly double _stressSpikeThreshold =
+            double.Parse(ConfigurationManager.AppSettings["StressSpikeThreshold"] ?? "10",
+                         CultureInfo.InvariantCulture);
+        private readonly double _relaxationDropThreshold =
+            double.Parse(ConfigurationManager.AppSettings["RelaxationDropThreshold"] ?? "10",
+                         CultureInfo.InvariantCulture);
 
+        public event EventHandler<StressSpikeEventArgs> OnStressSpike;
+        public event EventHandler<RelaxationDropEventArgs> OnRelaxationDrop;
         //  StartSession 
         public AckResponse StartSession(EegMeta meta)
         {
@@ -111,6 +122,42 @@ namespace Service
 
             OnSampleReceived?.Invoke(this, new SampleReceivedEventArgs(sample, _currentMeta?.ParticipantId));
 
+            if (!double.IsNaN(_prevStress))
+            {
+                double dStress = sample.Stress - _prevStress;
+                if (Math.Abs(dStress) > _stressSpikeThreshold)
+                {
+                    OnStressSpike?.Invoke(this, new StressSpikeEventArgs(
+                        _currentMeta?.ParticipantId, sample.Timestamp, sample.RowIndex,
+                        _prevStress, sample.Stress, dStress));
+
+                    OnWarningRaised?.Invoke(this, new WarningRaisedEventArgs(
+                        _currentMeta?.ParticipantId,
+                        $"StressSpike {(dStress > 0 ? "UP" : "DOWN")} Δ={dStress:F2} ({_prevStress:F2}→{sample.Stress:F2})",
+                        sample.RowIndex));
+                }
+            }
+
+            if (!double.IsNaN(_prevRelaxation))
+            {
+                double dRelax = sample.Relaxation - _prevRelaxation;
+                // nagli PAD opuštenosti  (negativna delta veća od praga)
+                if (dRelax < 0 && Math.Abs(dRelax) > _relaxationDropThreshold)
+                {
+                    OnRelaxationDrop?.Invoke(this, new RelaxationDropEventArgs(
+                        _currentMeta?.ParticipantId, sample.Timestamp, sample.RowIndex,
+                        _prevRelaxation, sample.Relaxation, dRelax));
+
+                    OnWarningRaised?.Invoke(this, new WarningRaisedEventArgs(
+                        _currentMeta?.ParticipantId,
+                        $"RelaxationDrop Δ={dRelax:F2} ({_prevRelaxation:F2}→{sample.Relaxation:F2})",
+                        sample.RowIndex));
+                }
+            }
+
+            _prevStress = sample.Stress;
+            _prevRelaxation = sample.Relaxation;
+
             Console.WriteLine($"[Server] prenos u toku... Participant={_currentMeta?.ParticipantId} Row={sample.RowIndex}");
 
             return new AckResponse { IsAck = true, Message = $"Red {sample.RowIndex} primljen.", Status = SessionStatus.InProgress };
@@ -143,7 +190,7 @@ namespace Service
 
             OnTransferCompleted?.Invoke(this, new TransferCompletedEventArgs(_currentMeta?.ParticipantId, _receivedCount));
 
-            return new AckResponse { IsAck = true, Message = "Sesija zavr�ena.", Status = SessionStatus.Completed };
+            return new AckResponse { IsAck = true, Message = "Sesija završena.", Status = SessionStatus.Completed };
         }
 
         // ?? IDisposable 

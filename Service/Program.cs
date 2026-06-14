@@ -24,6 +24,12 @@ namespace Service
                 svc.OnWarningRaised += (s, e) =>
                     Console.WriteLine($"[UPOZORENJE] {e.RaisedAt:HH:mm:ss} Participant={e.ParticipantId} Row={e.RowIndex}: {e.Message}");
 
+                svc.OnStressSpike += (s, e) =>
+                    Console.WriteLine($"[ANALITIKA] StressSpike {e.Direction} Δ={e.Delta:F2} | Participant={e.ParticipantId} Row={e.RowIndex} ({e.ValueBefore:F2}→{e.ValueAfter:F2})");
+
+                svc.OnRelaxationDrop += (s, e) =>
+                    Console.WriteLine($"[ANALITIKA] RelaxationDrop Δ={e.Delta:F2} | Participant={e.ParticipantId} Row={e.RowIndex} ({e.ValueBefore:F2}→{e.ValueAfter:F2})");
+
                 using (ServiceHost host = new ServiceHost(svc))
                 {
                     host.Open();
