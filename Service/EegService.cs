@@ -7,6 +7,7 @@ using System.ServiceModel;
 
 namespace Service
 {
+    [ServiceBehavior(InstanceContextMode = InstanceContextMode.Single)]
     public class EegService : IEegService, IDisposable
     {
         private EegMeta _currentMeta;
@@ -15,6 +16,10 @@ namespace Service
         private StreamWriter _sessionWriter;
         private StreamWriter _rejectsWriter;
         private bool _disposed = false;
+        public event EventHandler<TransferStartedEventArgs> OnTransferStarted;
+        public event EventHandler<SampleReceivedEventArgs> OnSampleReceived;
+        public event EventHandler<TransferCompletedEventArgs> OnTransferCompleted;
+        public event EventHandler<WarningRaisedEventArgs> OnWarningRaised;
 
         //  StartSession 
         public AckResponse StartSession(EegMeta meta)
@@ -45,6 +50,8 @@ namespace Service
                 _rejectsWriter.WriteLine("Time,Reason,RawRow");
 
             Console.WriteLine($"[Server] >>> ZAPOCET PRENOS za Participant={meta.ParticipantId}, File={meta.FileName}, OcekivanoRedova={meta.TotalRows}");
+
+            OnTransferStarted?.Invoke(this, new TransferStartedEventArgs(meta));
 
             return new AckResponse { IsAck = true, Message = "Sesija otvorena.", Status = SessionStatus.InProgress };
         }
@@ -102,6 +109,8 @@ namespace Service
 
             _receivedCount++;
 
+            OnSampleReceived?.Invoke(this, new SampleReceivedEventArgs(sample, _currentMeta?.ParticipantId));
+
             Console.WriteLine($"[Server] prenos u toku... Participant={_currentMeta?.ParticipantId} Row={sample.RowIndex}");
 
             return new AckResponse { IsAck = true, Message = $"Red {sample.RowIndex} primljen.", Status = SessionStatus.InProgress };
@@ -131,6 +140,8 @@ namespace Service
             _rejectsWriter?.Flush();
             _rejectsWriter?.Dispose();
             _rejectsWriter = null;
+
+            OnTransferCompleted?.Invoke(this, new TransferCompletedEventArgs(_currentMeta?.ParticipantId, _receivedCount));
 
             return new AckResponse { IsAck = true, Message = "Sesija završena.", Status = SessionStatus.Completed };
         }
