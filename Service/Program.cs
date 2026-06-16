@@ -24,6 +24,15 @@ namespace Service
                 svc.OnWarningRaised += (s, e) =>
                     Console.WriteLine($"[UPOZORENJE] {e.RaisedAt:HH:mm:ss} Participant={e.ParticipantId} Row={e.RowIndex}: {e.Message}");
 
+                svc.OnPoorContact += (s, e) =>
+                    Console.WriteLine($"[ANALITIKA] PoorContact     Participant={e.ParticipantId} Row={e.RowIndex} CQ={e.ContactQuality}");
+
+                svc.OnLowBattery += (s, e) =>
+                    Console.WriteLine($"[ANALITIKA] LowBattery      Participant={e.ParticipantId} Row={e.RowIndex} Bat={e.Battery}%");
+
+                svc.OnTimeSkew += (s, e) =>
+                    Console.WriteLine($"[ANALITIKA] TimeSkew        Participant={e.ParticipantId} Row={e.RowIndex} Skew={e.SkewMs:F0}ms");
+
                 svc.OnStressSpike += (s, e) =>
                     Console.WriteLine($"[ANALITIKA] StressSpike {e.Direction} Δ={e.Delta:F2} | Participant={e.ParticipantId} Row={e.RowIndex} ({e.ValueBefore:F2}→{e.ValueAfter:F2})");
 

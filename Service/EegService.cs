@@ -29,9 +29,22 @@ namespace Service
         private readonly double _relaxationDropThreshold =
             double.Parse(ConfigurationManager.AppSettings["RelaxationDropThreshold"] ?? "10",
                          CultureInfo.InvariantCulture);
+        private readonly int _contactQualityMin =
+            int.Parse(ConfigurationManager.AppSettings["ContactQualityMin"] ?? "3");
+        private readonly int _batteryLowThreshold =
+            int.Parse(ConfigurationManager.AppSettings["BatteryLowThreshold"] ?? "20");
+        private readonly double _timestampSkewMaxMs =
+            double.Parse(ConfigurationManager.AppSettings["TimestampSkewMaxMs"] ?? "2000",
+                         CultureInfo.InvariantCulture);
+
+        private DateTime _prevTimestamp = DateTime.MinValue;
 
         public event EventHandler<StressSpikeEventArgs> OnStressSpike;
         public event EventHandler<RelaxationDropEventArgs> OnRelaxationDrop;
+        public event EventHandler<PoorContactEventArgs> OnPoorContact;
+        public event EventHandler<LowBatteryEventArgs> OnLowBattery;
+        public event EventHandler<TimeSkewEventArgs> OnTimeSkew;
+
         //  StartSession 
         public AckResponse StartSession(EegMeta meta)
         {
@@ -41,6 +54,9 @@ namespace Service
             _currentMeta = meta;
             _lastRowIndex = -1;
             _receivedCount = 0;
+            _prevStress = double.NaN;
+            _prevRelaxation = double.NaN;
+            _prevTimestamp = DateTime.MinValue;
 
             // Mora da otvori fajlove inace PushSample puca (_sessionWriter == null)
             string dataPath = ConfigurationManager.AppSettings["DataPath"] ?? "Data";
@@ -121,6 +137,41 @@ namespace Service
             _receivedCount++;
 
             OnSampleReceived?.Invoke(this, new SampleReceivedEventArgs(sample, _currentMeta?.ParticipantId));
+
+            if (sample.ContactQuality < _contactQualityMin)
+            {
+                string msg = $"PoorContactWarning: CQ={sample.ContactQuality} < {_contactQualityMin}";
+                OnPoorContact?.Invoke(this, new PoorContactEventArgs(
+                    _currentMeta?.ParticipantId, sample.ContactQuality, sample.RowIndex));
+                OnWarningRaised?.Invoke(this, new WarningRaisedEventArgs(
+                    _currentMeta?.ParticipantId, msg, sample.RowIndex));
+                LogReject(sample, msg);
+            }
+
+            if (sample.Battery < _batteryLowThreshold)
+            {
+                string msg = $"LowBatteryWarning: Battery={sample.Battery}% < {_batteryLowThreshold}%";
+                OnLowBattery?.Invoke(this, new LowBatteryEventArgs(
+                    _currentMeta?.ParticipantId, sample.Battery, sample.RowIndex));
+                OnWarningRaised?.Invoke(this, new WarningRaisedEventArgs(
+                    _currentMeta?.ParticipantId, msg, sample.RowIndex));
+                LogReject(sample, msg);
+            }
+
+            if (_prevTimestamp != DateTime.MinValue)
+            {
+                double skewMs = (sample.Timestamp - _prevTimestamp).TotalMilliseconds;
+                if (Math.Abs(skewMs) > _timestampSkewMaxMs)
+                {
+                    string msg = $"TimeSkewWarning: razlika={skewMs:F0}ms > {_timestampSkewMaxMs}ms";
+                    OnTimeSkew?.Invoke(this, new TimeSkewEventArgs(
+                        _currentMeta?.ParticipantId, sample.RowIndex, skewMs));
+                    OnWarningRaised?.Invoke(this, new WarningRaisedEventArgs(
+                        _currentMeta?.ParticipantId, msg, sample.RowIndex));
+                    LogReject(sample, msg);
+                }
+            }
+            _prevTimestamp = sample.Timestamp;
 
             if (!double.IsNaN(_prevStress))
             {
